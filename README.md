@@ -20,8 +20,10 @@ It uses a Cloudflare Worker as the API boundary, Groq for generation, Workers AI
 - Semantic chunking
 - Workers AI embeddings
 - Cosine-similarity retrieval
+- Hybrid semantic + lexical reranking
 - Top-k evidence selection
 - Source labels shown with answers
+- Document deduplication and lifecycle controls
 
 ### Reliability
 - Typed application errors
@@ -85,9 +87,11 @@ fieldnote-chat/
 │   ├── app.js             # UI state + streaming client
 │   └── styles.css         # responsive design
 ├── migrations/
-│   └── 0001_init.sql
+│   ├── 0001_init.sql
+│   └── 0002_harden_indexes.sql
 ├── tests/
 │   ├── config.test.js
+│   ├── http.test.js
 │   ├── rag.test.js
 │   └── validation.test.js
 ├── .github/
@@ -115,6 +119,9 @@ fieldnote-chat/
 | POST | /conversations | Create conversation |
 | POST | /documents | Index document text |
 | POST | /chat | Stream an AI response |
+| DELETE | /conversations/:id | Delete a conversation and dependent data |
+| GET | /conversations/:id/export | Export a conversation as Markdown |
+| DELETE | /documents | Remove an indexed document |
 
 ## Request flow
 
@@ -156,21 +163,21 @@ npx wrangler deploy
 
 Then set the deployed Worker URL in `frontend/app.js`.
 
-## Important production limitations
+## Production boundary
 
-This is **not** yet a multi-tenant enterprise application.
+This remains a deliberately small, single-user/demo architecture rather than a multi-tenant enterprise application.
 
 Before handling sensitive customer data, add:
 - authentication
 - authorization / ownership checks
 - tenant isolation
-- document deletion and retention controls
+- authenticated ownership and tenant isolation
 - managed vector indexing for larger corpora
 - audit logging
 - stronger abuse protection
-- a formal LLM evaluation dataset
+- a larger managed vector index for high-volume corpora
 
-The current RAG implementation deliberately scans stored embeddings because it is small and understandable. That is a good portfolio architecture for a small corpus, not a scalable vector-search architecture.
+The current RAG implementation deliberately scans stored embeddings because it is small and understandable. Hybrid reranking improves relevance, but a production-scale corpus should move to a managed vector index and authenticated tenant-aware retrieval.
 
 ## Engineering decisions
 
@@ -196,7 +203,7 @@ npm test
 npm run check
 ```
 
-The tests cover validation, configuration invariants, chunking, and vector similarity. CI runs them on every push and pull request.
+The tests cover validation, configuration invariants, HTTP security, hybrid retrieval, chunking, and vector similarity. CI runs them on every push and pull request.
 
 ## Security
 
