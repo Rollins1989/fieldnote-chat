@@ -1,73 +1,33 @@
-// worker.js
-// A free Cloudflare Worker that proxies chat requests to Groq's free API.
-// This keeps your GROQ_API_KEY secret (never exposed in the browser),
-// which is the whole reason this file exists instead of calling Groq
-// directly from chatbot.html.
+import { LIMITS, validateChatMessage, validateConversation, validateDocument } from "./backend/validation.js";
+import { addMessage, checkRateLimit, createConversation, getChunks, getConversation, listConversations, saveChunk, saveDocument } from "./backend/storage.js";
+import { chunkText, embed, retrieve } from "./backend/rag.js";
 
-export default {
-  async fetch(request, env) {
-    const corsHeaders = {
-      "Access-Control-Allow-Origin": "*", // for a portfolio demo this is fine;
-                                           // lock it to your GitHub Pages domain later if you want.
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-    };
+const SYSTEM_PROMPT = "You are Fieldnote, a concise AI research assistant. Be accurate, transparent about uncertainty, and useful. When document context is supplied, prioritize it over unsupported assumptions. Never invent citations or claim to have read material that is not in the supplied context. Use plain language unless the user asks for technical depth.";
+const ALLOWED_ORIGINS = new Set(["https://rollins1989.github.io","https://fieldnote-chat.nanotechnology728.workers.dev"]);
+const corsHeaders = request => { const origin=request.headers.get("Origin"); return {"Access-Control-Allow-Origin":ALLOWED_ORIGINS.has(origin)?origin:"null","Access-Control-Allow-Methods":"GET, POST, OPTIONS","Access-Control-Allow-Headers":"Content-Type","Access-Control-Max-Age":"86400","Vary":"Origin"}; };
+const json=(data,status=200,headers={})=>new Response(JSON.stringify(data),{status,headers:{"Content-Type":"application/json; charset=utf-8",...headers}});
+const clientKey=request=>request.headers.get("CF-Connecting-IP")||"anonymous";
 
-    // Browsers send a CORS preflight before the real POST — answer it.
-    if (request.method === "OPTIONS") {
-      return new Response(null, { headers: corsHeaders });
-    }
+async function streamGroq(env,messages,context,headers,onComplete){
+  const system=SYSTEM_PROMPT+(context?"\n\nRelevant document context:\n"+context+"\n\nUse this context when relevant. If it does not answer the question, say so.":"\n\nNo document context is available.");
+  const upstream=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+env.GROQ_API_KEY},body:JSON.stringify({model:env.GROQ_MODEL||"openai/gpt-oss-20b",messages:[{role:"system",content:system},...messages],max_tokens:1200,temperature:.2,stream:true})});
+  if(!upstream.ok||!upstream.body)throw new Error("LLM provider unavailable");
+  const reader=upstream.body.getReader(),decoder=new TextDecoder(),encoder=new TextEncoder();let buffer="",fullReply="";
+  const stream=new ReadableStream({async pull(controller){const {value,done}=await reader.read();if(done){await onComplete(fullReply);controller.enqueue(encoder.encode("data: [DONE]\n\n"));controller.close();return}buffer+=decoder.decode(value,{stream:true});const lines=buffer.split("\n");buffer=lines.pop()||"";for(const line of lines){if(!line.startsWith("data: "))continue;const payload=line.slice(6);if(payload==="[DONE]")continue;try{const parsed=JSON.parse(payload),delta=parsed.choices?.[0]?.delta?.content||"";if(delta){fullReply+=delta;controller.enqueue(encoder.encode("data: "+JSON.stringify({type:"delta",text:delta})+"\n\n"))}}catch{}}},cancel(){reader.cancel()}}});
+  return new Response(stream,{headers:{...headers,"Content-Type":"text/event-stream; charset=utf-8","Cache-Control":"no-cache","Connection":"keep-alive"}});
+}
 
-    if (request.method !== "POST") {
-      return new Response("Method not allowed", { status: 405, headers: corsHeaders });
-    }
-
-    try {
-      const { messages, system } = await request.json();
-
-      if (!Array.isArray(messages)) {
-        return new Response(JSON.stringify({ error: "messages must be an array" }), {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${env.GROQ_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: "openai/gpt-oss-20b", // free on Groq at time of writing
-          messages: [
-            { role: "system", content: system || "You are a helpful assistant." },
-            ...messages,
-          ],
-          max_tokens: 1000,
-        }),
-      });
-
-      if (!groqResponse.ok) {
-        const errText = await groqResponse.text();
-        return new Response(JSON.stringify({ error: errText }), {
-          status: groqResponse.status,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      const data = await groqResponse.json();
-      const reply = data.choices?.[0]?.message?.content || "";
-
-      return new Response(JSON.stringify({ reply }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    } catch (err) {
-      return new Response(JSON.stringify({ error: err.message }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-  },
-};
-
+export default {async fetch(request,env){
+  const headers=corsHeaders(request),requestId=crypto.randomUUID();
+  if(request.method==="OPTIONS")return new Response(null,{status:204,headers});
+  const url=new URL(request.url);
+  try{
+    if(request.method==="GET"&&url.pathname==="/health")return json({status:"ok",service:"fieldnote-api",request_id:requestId},200,headers);
+    if(request.method==="GET"&&url.pathname==="/conversations")return json({conversations:await listConversations(env)},200,headers);
+    if(request.method==="GET"&&url.pathname.startsWith("/conversations/")){const cid=url.pathname.split("/").pop(),data=await getConversation(env,cid);if(!data.conversation)return json({error:{code:"NOT_FOUND",message:"Conversation not found."}},404,headers);return json(data,200,headers)}
+    if(request.method==="POST"&&url.pathname==="/conversations"){const body=await request.json(),error=validateConversation(body);if(error)return json({error:{code:"VALIDATION_ERROR",message:error}},400,headers);const cid=crypto.randomUUID().replaceAll("-","");await createConversation(env,cid,body.title?.trim()||"New conversation");return json({id:cid},201,headers)}
+    if(request.method==="POST"&&url.pathname==="/documents"){const body=await request.json(),error=validateDocument(body);if(error)return json({error:{code:"VALIDATION_ERROR",message:error}},400,headers);if(!env.AI||!env.DB)return json({error:{code:"FEATURE_UNAVAILABLE",message:"Document retrieval requires D1 and Workers AI bindings."}},503,headers);const doc=crypto.randomUUID().replaceAll("-","");await saveDocument(env,doc,body.conversation_id,body.title.trim());const chunks=chunkText(body.text);for(let i=0;i<chunks.length;i++){const vector=await embed(env,chunks[i]);if(vector)await saveChunk(env,doc,i,chunks[i],vector)}return json({id:doc,chunks:chunks.length},201,headers)}
+    if(request.method==="POST"&&url.pathname==="/chat"){const body=await request.json(),error=validateChatMessage(body);if(error)return json({error:{code:"VALIDATION_ERROR",message:error}},400,headers);if(!env.GROQ_API_KEY)return json({error:{code:"CONFIGURATION_ERROR",message:"LLM provider is not configured."}},503,headers);const rate=await checkRateLimit(env,clientKey(request),LIMITS.rateLimitPerMinute);if(!rate.allowed)return json({error:{code:"RATE_LIMITED",message:"Too many requests. Try again in a minute."}},429,{...headers,"Retry-After":"60"});const conversation=await getConversation(env,body.conversation_id);if(env.DB&&!conversation.conversation)return json({error:{code:"NOT_FOUND",message:"Conversation not found."}},404,headers);await addMessage(env,body.conversation_id,"user",body.message.trim());const recent=(conversation.messages||[]).slice(-10).map(({role,content})=>({role,content}));recent.push({role:"user",content:body.message.trim()});const chunks=await getChunks(env);const relevant=chunks.length&&env.AI?await retrieve(env,body.message.trim(),chunks,4):[];const context=relevant.map((x,i)=>"[Source "+(i+1)+": "+x.title+"]\n"+x.content).join("\n\n");const response=await streamGroq(env,recent,context,headers,async reply=>addMessage(env,body.conversation_id,"assistant",reply));if(relevant.length){const encoder=new TextEncoder(),source=response.body;const stream=new ReadableStream({async start(controller){const reader=source.getReader();while(true){const part=await reader.read();if(part.done)break;controller.enqueue(part.value)}controller.enqueue(encoder.encode("data: "+JSON.stringify({type:"citations",citations:relevant.map(x=>({title:x.title,score:Number(x.score.toFixed(3))}))})+"\n\n"));controller.close()}});return new Response(stream,{headers:response.headers})}return response}
+    return json({error:{code:"NOT_FOUND",message:"Route not found."}},404,headers);
+  }catch(error){return json({error:{code:"INTERNAL_ERROR",message:"Unexpected server error.",request_id:requestId}},500,headers)}
+}};
