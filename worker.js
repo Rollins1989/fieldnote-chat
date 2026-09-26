@@ -21,6 +21,7 @@ function clientKey(request) {
 
 function route(pathname) {
   if (pathname === "/health") return ["health"];
+  if (pathname.startsWith("/conversations/") && pathname.endsWith("/export")) return ["conversation-export", pathname.split("/")[2]];
   if (pathname === "/conversations") return ["conversations"];
   if (pathname === "/documents") return ["documents"];
   if (pathname === "/chat") return ["chat"];
@@ -28,7 +29,7 @@ function route(pathname) {
   return ["not-found"];
 }
 
-async function streamGroq(env, messages, context, headers, onComplete) {
+async function streamGroq(env, messages, context, headers, onComplete, requestId) {
   const system = SYSTEM_PROMPT + (context
     ? "\n\nRetrieved source material:\n" + context + "\n\nUse source material when relevant. Do not claim it proves something it does not."
     : "\n\nNo source material was retrieved for this request.");
@@ -79,7 +80,13 @@ async function streamGroq(env, messages, context, headers, onComplete) {
           } catch {}
         }
       } catch (error) {
-        controller.error(error);
+        try {
+          if (fullReply) await onComplete(fullReply);
+          controller.enqueue(encoder.encode("data: " + JSON.stringify({ type: "error", message: "The response stream ended unexpectedly.", request_id: requestId }) + "\n\n"));
+          controller.close();
+        } catch {
+          controller.error(error);
+        }
       }
     },
     cancel() { reader.cancel(); }
@@ -102,7 +109,7 @@ export default {
       const [name, value] = route(new URL(request.url).pathname);
 
       if (request.method === "GET" && name === "health") {
-        return json({ status: "ok", service: "fieldnote-api", version: "2.2.0", capabilities: { chat: true, retrieval: Boolean(env.AI && env.DB), persistence: Boolean(env.DB) }, request_id: requestId }, 200, headers);
+        return json({ status: "ok", service: "fieldnote-api", version: "2.4.0", capabilities: { chat: true, retrieval: Boolean(env.AI && env.DB), persistence: Boolean(env.DB) }, request_id: requestId }, 200, headers);
       }
 
       if (request.method === "GET" && name === "conversations") {
@@ -114,6 +121,25 @@ export default {
         if (!data.conversation) throw new AppError("NOT_FOUND", "Conversation not found.", 404);
         await deleteConversation(env, value);
         return json({ deleted: true, id: value }, 200, headers);
+      }
+
+      if (request.method === "GET" && name === "conversation-export") {
+        const data = await getConversation(env, value);
+        if (!data.conversation) throw new AppError("NOT_FOUND", "Conversation not found.", 404);
+        const lines = [
+          "# " + data.conversation.title,
+          "",
+          "_Exported by Fieldnote_",
+          ""
+        ];
+        for (const message of data.messages || []) {
+          lines.push(message.role === "user" ? "## You" : "## Fieldnote", "", message.content, "");
+        }
+        const body = lines.join("\n");
+        return new Response(body, {
+          status: 200,
+          headers: { ...headers, "Content-Type": "text/markdown; charset=utf-8", "Content-Disposition": 'attachment; filename="fieldnote-conversation.md"' }
+        });
       }
 
       if (request.method === "GET" && name === "conversation") {
@@ -145,12 +171,19 @@ export default {
         const existing = await findDocumentByHash(env, body.conversation_id, contentHash);
         if (existing) return json({ id: existing.id, chunks: 0, duplicate: true }, 200, headers);
 
+        const chunks = chunkText(body.text);
+        if (chunks.length > CONFIG.maxChunksPerDocument) throw new AppError("DOCUMENT_LIMIT", "Document produces too many chunks for the configured indexing limit.", 400);
         const documentId = crypto.randomUUID().replaceAll("-", "");
         await saveDocument(env, documentId, body.conversation_id, body.title.trim(), contentHash, body.text.length);
-        const chunks = chunkText(body.text);
-        for (let i = 0; i < chunks.length; i++) {
-          const vector = await embed(env, chunks[i]);
-          if (vector) await saveChunk(env, documentId, i, chunks[i], vector);
+        try {
+          for (let i = 0; i < chunks.length; i++) {
+            const vector = await embed(env, chunks[i]);
+            if (!vector) throw new AppError("EMBEDDING_UNAVAILABLE", "The embedding service did not return a vector.", 503);
+            await saveChunk(env, documentId, i, chunks[i], vector);
+          }
+        } catch (error) {
+          await deleteDocument(env, documentId);
+          throw error;
         }
         return json({ id: documentId, chunks: chunks.length, characters: body.text.length, indexed: true }, 201, headers);
       }
@@ -189,7 +222,7 @@ export default {
 
         const response = await streamGroq(env, recent, context, headers, async reply => {
           await addMessage(env, body.conversation_id, "assistant", reply);
-        });
+        }, requestId);
 
         if (!relevant.length) return response;
 
