@@ -21,7 +21,11 @@
 <section class="workspace">
 <aside class="sidebar" aria-label="Conversation sidebar">
   <div class="sidebar-heading"><span>Conversations</span><span id="document-status" class="status-pill">Ready</span></div>
-  <div id="conversation-list" class="conversation-list"></div>
+  <div class="sidebar-tools">
+    <button id="export-chat" class="sidebar-action" type="button">Export chat</button>
+    <button id="delete-chat" class="sidebar-action danger-action" type="button">Delete chat</button>
+  </div>
+  <div id="conversation-list" class="conversation-list"></div><div id="document-list" class="document-list" aria-label="Indexed documents"></div>
   <div class="sidebar-footer"><strong>Fieldnote</strong><p>Private-by-design architecture with server-side generation, semantic retrieval and persistent conversation memory.</p></div>
 </aside>
 <section class="chat-panel" aria-label="Chat">
