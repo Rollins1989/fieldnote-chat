@@ -370,7 +370,18 @@ els.documentInput.onchange = async () => {
   }
 };
 
-setStatus("Ready", "ready");
+async function checkHealth() {
+  try {
+    const response = await api("/health");
+    const data = await response.json();
+    setStatus(data.status === "ok" ? "Connected" : "Degraded", data.status === "ok" ? "ready" : "busy");
+  } catch {
+    setStatus("Offline", "error");
+  }
+}
+
+setStatus("Connecting", "busy");
 bindSuggestions();
 loadConversations();
 loadConversationDocuments();
+checkHealth();
