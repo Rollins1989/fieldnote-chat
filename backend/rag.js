@@ -1,12 +1,15 @@
+import { CONFIG } from "./config.js";
+
 export function chunkText(text, size = 900, overlap = 120) {
   const normalized = text.replace(/\s+/g, " ").trim();
+  if (!normalized) return [];
   const chunks = [];
   let start = 0;
   while (start < normalized.length) {
     const end = Math.min(normalized.length, start + size);
     chunks.push(normalized.slice(start, end));
     if (end >= normalized.length) break;
-    start = end - overlap;
+    start = Math.max(0, end - overlap);
   }
   return chunks;
 }
@@ -28,11 +31,16 @@ export function cosineSimilarity(a, b) {
   return na && nb ? dot / (Math.sqrt(na) * Math.sqrt(nb)) : 0;
 }
 
-export async function retrieve(env, query, chunks, topK = 4) {
+export async function retrieve(env, query, chunks, topK = CONFIG.maxRetrievalChunks) {
   const queryEmbedding = await embed(env, query);
   if (!queryEmbedding) return [];
-  return chunks.map((chunk) => ({
-    ...chunk,
-    score: cosineSimilarity(queryEmbedding, JSON.parse(chunk.embedding))
-  })).sort((a, b) => b.score - a.score).slice(0, topK).filter((chunk) => chunk.score >= 0.25);
+  return chunks
+    .map((chunk) => {
+      let embedding;
+      try { embedding = JSON.parse(chunk.embedding); } catch { embedding = null; }
+      return { ...chunk, score: cosineSimilarity(queryEmbedding, embedding) };
+    })
+    .filter((chunk) => chunk.score >= CONFIG.retrievalThreshold)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, topK);
 }
