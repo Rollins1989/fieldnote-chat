@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Fieldnote — AI research assistant with streaming chat, document retrieval and conversation memory.">
+<meta name="theme-color" content="#17201d"><title>Fieldnote — AI Research Assistant</title>
+<link rel="stylesheet" href="./frontend/styles.css"></head>
+<body><main class="app-shell">
+<header class="topbar"><div class="brand"><span class="brand-mark"></span><div><h1>Fieldnote</h1><p>AI research assistant</p></div></div>
+<div class="top-actions"><label class="upload-button"><input id="document-input" type="file" accept=".txt,.md,.markdown,.pdf,text/plain,text/markdown,application/pdf" hidden>Add document</label><button id="new-chat" class="secondary-button" type="button">New chat</button></div></header>
+<section class="workspace"><aside class="sidebar"><div class="sidebar-heading"><span>Conversations</span><span id="document-status" class="status-pill">Ready</span></div><div id="conversation-list" class="conversation-list"></div><div class="sidebar-footer"><strong>Fieldnote</strong> uses a serverless Worker, Groq generation, Workers AI embeddings, and D1 persistence.</div></aside>
+<section class="chat-panel"><div id="messages" class="messages"><div id="empty-state" class="empty-state"><span class="eyebrow">RESEARCH MODE</span><h2>Ask a question. Bring a document.</h2><p>Fieldnote can reason over your conversation and retrieve relevant passages from documents you add.</p><div class="suggestions"><button type="button" data-prompt="Explain a difficult concept in simple terms.">Explain a concept</button><button type="button" data-prompt="Help me analyze this research problem step by step.">Analyze a problem</button><button type="button" data-prompt="Give me a concise research plan for this topic.">Build a research plan</button></div></div></div>
+<form id="composer" class="composer"><textarea id="message-input" rows="1" maxlength="4000" placeholder="Message Fieldnote…" aria-label="Message Fieldnote"></textarea><button id="send-button" class="send-button" type="submit">↗</button></form>
+<p class="disclaimer">AI responses can be wrong. Verify important claims against cited source material.</p></section></section></main>
+<script type="module" src="./frontend/app.js"></script></body></html>
