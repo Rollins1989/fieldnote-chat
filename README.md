@@ -1,60 +1,152 @@
 # Fieldnote
 
-A lightweight AI chatbot built with a static web frontend and a serverless backend powered by Groq.
+> A serverless AI research assistant with streaming chat, conversational memory, document retrieval, citations, and production-minded API controls.
 
-## Overview
+[![CI](https://github.com/Rollins1989/fieldnote-chat/actions/workflows/ci.yml/badge.svg)](https://github.com/Rollins1989/fieldnote-chat/actions/workflows/ci.yml)
 
-Fieldnote is a simple, deployable AI chatbot that provides conversational responses through a web-based interface.
+## What it demonstrates
 
-The project uses a serverless backend to securely communicate with the Groq API while keeping the API key away from the client-side code.
+Fieldnote is intentionally framework-light so the important AI application mechanics remain visible.
 
-## Features
-
-- Clean web-based chat interface
-- AI-powered conversational responses
-- Serverless backend using Cloudflare Workers
-- Secure API key handling through environment secrets
-- Conversation history during the current session
-- Responsive interface
-- Deployable using GitHub Pages and Cloudflare Workers
-
-## Tech Stack
-
-**Frontend**
-- HTML
-- CSS
-- JavaScript
-
-**Backend**
-- Cloudflare Workers
-- JavaScript
-
-**AI**
-- Groq API
-- `openai/gpt-oss-20b`
-
-**Deployment**
-- GitHub Pages
-- Cloudflare Workers
+- Streaming LLM responses over Server-Sent Events
+- Server-owned system prompt and model configuration
+- Conversation persistence with Cloudflare D1
+- TXT, Markdown, and PDF document ingestion
+- Text chunking and Workers AI embeddings
+- Lightweight semantic retrieval with cosine similarity
+- Source-aware citations in the chat UI
+- Request validation and size limits
+- Per-IP minute-based rate limiting when D1 is configured
+- Structured API errors and request IDs
+- Cloudflare observability
+- Automated unit tests and GitHub Actions CI
+- Responsive vanilla-JavaScript frontend
 
 ## Architecture
 
-```text
-User
-  │
-  ▼
-chatbot.html
-  │
-  │ POST /chat
-  ▼
-Cloudflare Worker
-  │
-  │ GROQ_API_KEY
-  ▼
-Groq API
-  │
-  ▼
-AI Response
-  │
-  ▼
-chatbot.html
+Browser -> Cloudflare Worker -> Groq / GPT-OSS for generation
+
+Documents -> PDF/text extraction -> chunking -> Workers AI embeddings -> D1
+
+Chat -> conversation memory + semantic retrieval -> LLM -> SSE stream + citations
+
+## Project structure
+
+    fieldnote-chat/
+    ├── backend/
+    │   ├── rag.js
+    │   ├── storage.js
+    │   └── validation.js
+    ├── frontend/
+    │   ├── app.js
+    │   └── styles.css
+    ├── migrations/
+    │   └── 0001_init.sql
+    ├── tests/
+    │   ├── rag.test.js
+    │   └── validation.test.js
+    ├── .github/workflows/ci.yml
+    ├── index.html
+    ├── worker.js
+    ├── wrangler.toml
+    └── package.json
+
+## API
+
+### GET /health
+
+Returns service health and a request ID.
+
+### POST /conversations
+
+Creates a conversation with an optional title.
+
+### GET /conversations/:id
+
+Returns conversation metadata and stored messages.
+
+### GET /conversations
+
+Lists recent conversations.
+
+### POST /documents
+
+Accepts extracted document text and indexes it into chunks plus embeddings. The frontend extracts PDF text in the browser before sending it.
+
+### POST /chat
+
+Accepts a conversation ID and user message and streams the assistant response using SSE. When relevant document chunks are found, a citations event is emitted before the stream closes.
+
+## Security and reliability
+
+- Groq credentials remain server-side.
+- The system prompt is controlled by the Worker, not the browser.
+- IDs, titles, message lengths, and document sizes are validated.
+- CORS is restricted to configured origins.
+- Requests are rate-limited by IP when D1 is enabled.
+- Provider failures are converted to generic internal errors rather than exposing upstream responses.
+- Important factual answers should still be verified against source material.
+
+## Local setup
+
+1. Install Node.js 20+.
+2. Copy .dev.vars.example to .dev.vars and add your Groq key.
+3. Create a D1 database:
+
+       npx wrangler d1 create fieldnote-db
+
+4. Replace REPLACE_WITH_YOUR_D1_DATABASE_ID in wrangler.toml with the returned ID.
+5. Apply migrations locally:
+
+       npx wrangler d1 migrations apply fieldnote-db --local
+
+6. Run checks:
+
+       npm test
+       npm run check
+
+7. Start the Worker:
+
+       npx wrangler dev
+
+For production:
+
+       npx wrangler d1 migrations apply fieldnote-db --remote
+       npx wrangler secret put GROQ_API_KEY
+       npx wrangler deploy
+
+Then update API_BASE in frontend/app.js to the deployed Worker URL.
+
+## Design decisions
+
+### Why vanilla JavaScript?
+
+The UI is deliberately framework-light. This keeps the LLM, SSE, retrieval, validation, and API code easy to inspect during an interview.
+
+### Why D1?
+
+D1 provides relational persistence for conversations, messages, documents, chunks, and rate-limit buckets without introducing another database service.
+
+### Why cosine similarity?
+
+The initial corpus is small, so brute-force similarity keeps retrieval understandable. A larger corpus should use a managed vector index.
+
+### Why separate generation and embeddings?
+
+Generation and retrieval are independent concerns. Groq handles generation while Workers AI provides embeddings for semantic retrieval.
+
+## Testing
+
+The repository contains deterministic tests for input validation, chunking, and cosine similarity. LLM evaluation should be treated separately from unit tests: maintain a versioned prompt dataset and measure relevance, citation correctness, latency, and hallucination rate before changing prompts or models.
+
+## Production notes
+
+The repository intentionally leaves the D1 database ID as a deployment-specific value. Do not commit secrets. Configure the database, Workers AI binding, and Groq secret in your Cloudflare environment before publishing the upgraded Worker.
+
+## Roadmap
+
+- Authenticated users
+- Managed vector index for larger corpora
+- Versioned LLM evaluation dataset and regression dashboard
+- Model fallback strategy
+- Request and latency metrics dashboard
