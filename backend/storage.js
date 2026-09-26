@@ -36,15 +36,16 @@ export async function saveChunk(env, documentId, chunkIndex, content, embedding)
   await env.DB.prepare("INSERT INTO document_chunks (document_id, chunk_index, content, embedding) VALUES (?, ?, ?, ?)").bind(documentId, chunkIndex, content, JSON.stringify(embedding)).run();
 }
 
-export async function getChunks(env, limit = 500) {
+export async function getChunks(env, conversationId, limit = 500) {
   if (!hasDb(env)) return [];
-  const { results } = await env.DB.prepare("SELECT dc.document_id, d.title, dc.content, dc.embedding FROM document_chunks dc JOIN documents d ON d.id = dc.document_id ORDER BY dc.document_id, dc.chunk_index LIMIT ?").bind(limit).all();
+  const { results } = await env.DB.prepare("SELECT dc.document_id, d.title, dc.content, dc.embedding FROM document_chunks dc JOIN documents d ON d.id = dc.document_id WHERE d.conversation_id = ? ORDER BY dc.document_id, dc.chunk_index LIMIT ?").bind(conversationId, limit).all();
   return results || [];
 }
 
 export async function checkRateLimit(env, key, maxRequests) {
   if (!hasDb(env)) return { allowed: true, remaining: maxRequests };
   const bucket = Math.floor(Date.now() / 60000);
+  await env.DB.prepare("DELETE FROM rate_limits WHERE expires_at < ?").bind(bucket).run();
   const id = key + ":" + bucket;
   await env.DB.prepare("INSERT INTO rate_limits (id, request_count, expires_at) VALUES (?, 1, ?) ON CONFLICT(id) DO UPDATE SET request_count = request_count + 1").bind(id, bucket + 1).run();
   const row = await env.DB.prepare("SELECT request_count FROM rate_limits WHERE id = ?").bind(id).first();
