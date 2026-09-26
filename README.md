@@ -28,8 +28,8 @@ It uses a Cloudflare Worker as the API boundary, Groq for generation, Workers AI
 - Request IDs
 - Input validation
 - Payload limits
-- CORS allowlist
-- IP-based minute rate limiting with D1
+- CORS allowlist with rejected foreign browser origins
+- IP-based minute rate limiting with D1 and automatic expired-bucket cleanup
 - Provider failures mapped to safe user-facing errors
 - Cloudflare observability
 - Automated CI
@@ -99,7 +99,10 @@ fieldnote-chat/
 ├── wrangler.toml
 ├── SECURITY.md
 ├── LICENSE
-└── package.json
+├── evals/
+│   ├── cases.json
+│   └── README.md
+├── package.json
 ```
 
 ## API
