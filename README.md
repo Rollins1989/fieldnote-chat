@@ -107,6 +107,7 @@ fieldnote-chat/
 │   ├── cases.json
 │   └── README.md
 ├── package.json
+├── CHANGELOG.md
 ```
 
 ## API
@@ -171,11 +172,9 @@ Before handling sensitive customer data, add:
 - authentication
 - authorization / ownership checks
 - tenant isolation
-- authenticated ownership and tenant isolation
 - managed vector indexing for larger corpora
 - audit logging
 - stronger abuse protection
-- a larger managed vector index for high-volume corpora
 
 The current RAG implementation deliberately scans stored embeddings because it is small and understandable. Hybrid reranking improves relevance, but a production-scale corpus should move to a managed vector index and authenticated tenant-aware retrieval.
 
