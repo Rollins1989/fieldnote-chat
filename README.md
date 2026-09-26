@@ -1,140 +1,204 @@
 # Fieldnote
 
-> A serverless AI research assistant with streaming chat, conversational memory, document retrieval, citations, and production-minded API controls.
+> **AI research assistant · serverless · retrieval-augmented · source-aware**
 
-[![CI](https://github.com/Rollins1989/fieldnote-chat/actions/workflows/ci.yml/badge.svg)](https://github.com/Rollins1989/fieldnote-chat/actions/workflows/ci.yml)
+Fieldnote is a production-minded AI research application built around a simple idea: **answers should be useful, conversations should persist, and retrieved evidence should be visible.**
 
-## What it demonstrates
+It uses a Cloudflare Worker as the API boundary, Groq for generation, Workers AI for embeddings, and D1 for relational persistence.
 
-- Streaming LLM responses over Server-Sent Events
-- Server-owned system prompt and model configuration
-- Conversation persistence with Cloudflare D1
-- TXT, Markdown, and PDF document ingestion
-- Text chunking and Workers AI embeddings
-- Lightweight semantic retrieval with cosine similarity
-- Source-aware citations in the chat UI
-- Request validation and size limits
-- Per-IP minute-based rate limiting when D1 is configured
-- Structured API errors and request IDs
+## Product
+
+### Chat
+- Streaming responses over Server-Sent Events
+- Conversation memory
+- Server-controlled system prompt
+- Low-temperature generation for more consistent answers
+
+### Research / RAG
+- Upload TXT, Markdown, or PDF files
+- Browser-side PDF text extraction
+- Semantic chunking
+- Workers AI embeddings
+- Cosine-similarity retrieval
+- Top-k evidence selection
+- Source labels shown with answers
+
+### Reliability
+- Typed application errors
+- Request IDs
+- Input validation
+- Payload limits
+- CORS allowlist
+- IP-based minute rate limiting with D1
+- Provider failures mapped to safe user-facing errors
 - Cloudflare observability
-- Automated unit tests and GitHub Actions CI
-- Responsive vanilla-JavaScript frontend
+- Automated CI
 
 ## Architecture
 
-Browser -> Cloudflare Worker -> Groq / GPT-OSS for generation
+```
+┌──────────────────────────────┐
+│          Browser             │
+│  Chat · Upload · History     │
+└──────────────┬───────────────┘
+               │ HTTPS / SSE
+               ▼
+┌──────────────────────────────┐
+│      Cloudflare Worker       │
+│ validation · routing · auth  │
+│ rate limit · orchestration   │
+└───────┬───────────┬──────────┘
+        │           │
+        ▼           ▼
+     ┌─────┐     ┌──────────────┐
+     │ D1  │     │ Workers AI   │
+     │ DB  │     │ embeddings   │
+     └─────┘     └──────┬───────┘
+                        │
+                        ▼
+                 ┌──────────────┐
+                 │     RAG      │
+                 │ top-k cosine │
+                 └──────┬───────┘
+                        │ context
+                        ▼
+                 ┌──────────────┐
+                 │     Groq     │
+                 │ GPT-OSS      │
+                 └──────┬───────┘
+                        │ SSE
+                        ▼
+                     Browser
+```
 
-Documents -> PDF/text extraction -> chunking -> Workers AI embeddings -> D1
+## Repository
 
-Chat -> conversation memory + semantic retrieval -> LLM -> SSE stream + citations
-
-## Project structure
-
-    fieldnote-chat/
-    ├── backend/
-    │   ├── rag.js
-    │   ├── storage.js
-    │   └── validation.js
-    ├── frontend/
-    │   ├── app.js
-    │   └── styles.css
-    ├── migrations/
-    │   └── 0001_init.sql
-    ├── tests/
-    │   ├── rag.test.js
-    │   └── validation.test.js
-    ├── .github/workflows/ci.yml
-    ├── index.html
-    ├── worker.js
-    ├── wrangler.toml
-    └── package.json
+```
+fieldnote-chat/
+├── backend/
+│   ├── config.js          # limits + system prompt
+│   ├── http.js            # errors + HTTP helpers
+│   ├── rag.js             # chunking + embeddings + retrieval
+│   ├── storage.js         # D1 persistence
+│   └── validation.js      # request validation
+├── frontend/
+│   ├── app.js             # UI state + streaming client
+│   └── styles.css         # responsive design
+├── migrations/
+│   └── 0001_init.sql
+├── tests/
+│   ├── config.test.js
+│   ├── rag.test.js
+│   └── validation.test.js
+├── .github/
+│   ├── ISSUE_TEMPLATE/
+│   ├── workflows/ci.yml
+│   └── pull_request_template.md
+├── index.html
+├── worker.js
+├── wrangler.toml
+├── SECURITY.md
+├── LICENSE
+└── package.json
+```
 
 ## API
 
-### GET /health
-Returns service health and a request ID.
+| Method | Route | Purpose |
+|---|---|---|
+| GET | /health | Health/version check |
+| GET | /conversations | Recent conversations |
+| GET | /conversations/:id | Conversation + messages |
+| POST | /conversations | Create conversation |
+| POST | /documents | Index document text |
+| POST | /chat | Stream an AI response |
 
-### POST /conversations
-Creates a conversation with an optional title.
+## Request flow
 
-### GET /conversations/:id
-Returns conversation metadata and stored messages.
+1. Browser creates or selects a conversation.
+2. User message is validated client-side and server-side.
+3. Worker checks rate limits.
+4. Recent conversation history is loaded.
+5. Relevant document chunks are retrieved when RAG is configured.
+6. Worker builds a controlled prompt with source context.
+7. Groq streams tokens back over SSE.
+8. Assistant output is persisted after generation.
+9. Retrieved source labels are sent to the UI.
 
-### GET /conversations
-Lists recent conversations.
+## Local development
 
-### POST /documents
-Accepts extracted document text and indexes it into chunks plus embeddings. The frontend extracts PDF text in the browser before sending it.
+Requirements: Node.js 20+ and Wrangler.
 
-### POST /chat
-Accepts a conversation ID and user message and streams the assistant response using SSE. When relevant document chunks are found, a citations event is emitted before the stream closes.
+```bash
+cp .dev.vars.example .dev.vars
+# add your GROQ_API_KEY
 
-## Security and reliability
+npm test
+npm run check
 
-- Groq credentials remain server-side.
-- The system prompt is controlled by the Worker, not the browser.
-- IDs, titles, message lengths, and document sizes are validated.
-- CORS is restricted to configured origins.
-- Requests are rate-limited by IP when D1 is enabled.
-- Provider failures are converted to generic internal errors.
-- Important factual answers should still be verified against source material.
+npx wrangler d1 create fieldnote-db
+# copy the returned database ID into wrangler.toml
 
-## Local setup
+npx wrangler d1 migrations apply fieldnote-db --local
+npx wrangler dev
+```
 
-1. Install Node.js 20+.
-2. Copy .dev.vars.example to .dev.vars and add your Groq key.
-3. Create a D1 database:
+Production:
 
-       npx wrangler d1 create fieldnote-db
+```bash
+npx wrangler d1 migrations apply fieldnote-db --remote
+npx wrangler secret put GROQ_API_KEY
+npx wrangler deploy
+```
 
-4. Replace REPLACE_WITH_YOUR_D1_DATABASE_ID in wrangler.toml with the returned ID.
-5. Apply migrations locally:
+Then set the deployed Worker URL in `frontend/app.js`.
 
-       npx wrangler d1 migrations apply fieldnote-db --local
+## Important production limitations
 
-6. Run checks:
+This is **not** yet a multi-tenant enterprise application.
 
-       npm test
-       npm run check
+Before handling sensitive customer data, add:
+- authentication
+- authorization / ownership checks
+- tenant isolation
+- document deletion and retention controls
+- managed vector indexing for larger corpora
+- audit logging
+- stronger abuse protection
+- a formal LLM evaluation dataset
 
-7. Start the Worker:
+The current RAG implementation deliberately scans stored embeddings because it is small and understandable. That is a good portfolio architecture for a small corpus, not a scalable vector-search architecture.
 
-       npx wrangler dev
+## Engineering decisions
 
-For production:
-
-       npx wrangler d1 migrations apply fieldnote-db --remote
-       npx wrangler secret put GROQ_API_KEY
-       npx wrangler deploy
-
-Then update API_BASE in frontend/app.js to the deployed Worker URL.
-
-## Design decisions
-
-### Why vanilla JavaScript?
-The UI is deliberately framework-light so the LLM, SSE, retrieval, validation, and API code remain easy to inspect during an interview.
+### Why Cloudflare?
+The application can run close to users without maintaining a traditional server.
 
 ### Why D1?
-D1 provides relational persistence for conversations, messages, documents, chunks, and rate-limit buckets.
+Conversations and metadata are relational. D1 keeps the initial deployment simple.
 
-### Why cosine similarity?
-The initial corpus is small, so brute-force similarity keeps retrieval understandable. A larger corpus should use a managed vector index.
+### Why Workers AI embeddings?
+It keeps retrieval inside the same serverless environment and avoids exposing embedding credentials to the browser.
 
-### Why separate generation and embeddings?
-Generation and retrieval are independent concerns. Groq handles generation while Workers AI provides embeddings for semantic retrieval.
+### Why Groq?
+Generation is isolated behind an OpenAI-compatible API boundary, making the model layer replaceable.
+
+### Why vanilla JavaScript?
+The project is intended to demonstrate the AI application architecture rather than framework complexity.
 
 ## Testing
 
-The repository contains deterministic tests for input validation, chunking, and cosine similarity. LLM evaluation should be treated separately: maintain a versioned prompt dataset and measure relevance, citation correctness, latency, and hallucination rate before changing prompts or models.
+```bash
+npm test
+npm run check
+```
 
-## Production notes
+The tests cover validation, configuration invariants, chunking, and vector similarity. CI runs them on every push and pull request.
 
-The D1 database ID is intentionally deployment-specific. Do not commit secrets. Configure D1, Workers AI, and the Groq secret in Cloudflare before publishing the Worker.
+## Security
 
-## Roadmap
+See [SECURITY.md](./SECURITY.md). Never commit `.dev.vars`, API keys, database credentials, or private documents.
 
-- Authenticated users
-- Managed vector index for larger corpora
-- Versioned LLM evaluation dataset and regression dashboard
-- Model fallback strategy
-- Request and latency metrics dashboard
+## License
+
+MIT.
