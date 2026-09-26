@@ -1,13 +1,19 @@
 import { CONFIG, SYSTEM_PROMPT } from "./backend/config.js";
 import { AppError, corsHeaders, errorResponse, json } from "./backend/http.js";
 import { validateChatMessage, validateConversation, validateDocument } from "./backend/validation.js";
-import { addMessage, checkRateLimit, createConversation, getChunks, getConversation, listConversations, saveChunk, saveDocument } from "./backend/storage.js";
+import { addMessage, checkRateLimit, countDocuments, createConversation, deleteConversation, deleteDocument, findDocumentByHash, getChunks, getConversation, listConversations, saveChunk, saveDocument } from "./backend/storage.js";
 import { chunkText, embed, retrieve } from "./backend/rag.js";
 
 const ALLOWED_ORIGINS = new Set([
   "https://rollins1989.github.io",
   "https://fieldnote-chat.nanotechnology728.workers.dev"
 ]);
+
+async function sha256Hex(text) {
+  const bytes = new TextEncoder().encode(text);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, "0")).join("");
+}
 
 function clientKey(request) {
   return request.headers.get("CF-Connecting-IP") || "anonymous";
@@ -96,11 +102,18 @@ export default {
       const [name, value] = route(new URL(request.url).pathname);
 
       if (request.method === "GET" && name === "health") {
-        return json({ status: "ok", service: "fieldnote-api", version: "2.1.0", request_id: requestId }, 200, headers);
+        return json({ status: "ok", service: "fieldnote-api", version: "2.2.0", capabilities: { chat: true, retrieval: Boolean(env.AI && env.DB), persistence: Boolean(env.DB) }, request_id: requestId }, 200, headers);
       }
 
       if (request.method === "GET" && name === "conversations") {
         return json({ conversations: await listConversations(env) }, 200, headers);
+      }
+
+      if (request.method === "DELETE" && name === "conversation") {
+        const data = await getConversation(env, value);
+        if (!data.conversation) throw new AppError("NOT_FOUND", "Conversation not found.", 404);
+        await deleteConversation(env, value);
+        return json({ deleted: true, id: value }, 200, headers);
       }
 
       if (request.method === "GET" && name === "conversation") {
@@ -126,14 +139,29 @@ export default {
         const conversation = await getConversation(env, body.conversation_id);
         if (!conversation.conversation) throw new AppError("NOT_FOUND", "Conversation not found.", 404);
 
+        const documentCount = await countDocuments(env, body.conversation_id);
+        if (documentCount >= CONFIG.maxDocumentsPerConversation) throw new AppError("DOCUMENT_LIMIT", "This conversation has reached its document limit.", 400);
+        const contentHash = await sha256Hex(body.text);
+        const existing = await findDocumentByHash(env, body.conversation_id, contentHash);
+        if (existing) return json({ id: existing.id, chunks: 0, duplicate: true }, 200, headers);
+
         const documentId = crypto.randomUUID().replaceAll("-", "");
-        await saveDocument(env, documentId, body.conversation_id, body.title.trim());
+        await saveDocument(env, documentId, body.conversation_id, body.title.trim(), contentHash, body.text.length);
         const chunks = chunkText(body.text);
         for (let i = 0; i < chunks.length; i++) {
           const vector = await embed(env, chunks[i]);
           if (vector) await saveChunk(env, documentId, i, chunks[i], vector);
         }
-        return json({ id: documentId, chunks: chunks.length }, 201, headers);
+        return json({ id: documentId, chunks: chunks.length, characters: body.text.length, indexed: true }, 201, headers);
+      }
+
+      if (request.method === "DELETE" && name === "documents") {
+        const body = await request.json();
+        if (!body?.id || !/^[a-zA-Z0-9_-]{8,100}$/.test(body.id)) throw new AppError("VALIDATION_ERROR", "Invalid document id.", 400);
+        const chunks = await getChunks(env, body.conversation_id);
+        if (!chunks.some(x => x.document_id === body.id)) throw new AppError("NOT_FOUND", "Document not found in this conversation.", 404);
+        await deleteDocument(env, body.id);
+        return json({ deleted: true, id: body.id }, 200, headers);
       }
 
       if (request.method === "POST" && name === "chat") {
@@ -157,7 +185,7 @@ export default {
 
         const chunks = await getChunks(env, body.conversation_id);
         const relevant = chunks.length && env.AI ? await retrieve(env, body.message.trim(), chunks) : [];
-        const context = relevant.map((item, i) => "[Source " + (i + 1) + ": " + item.title + "]\n" + item.content).join("\n\n");
+        const context = relevant.map((item, i) => "[Source " + (i + 1) + ": " + item.title + " | relevance " + item.score.toFixed(3) + "]\n" + item.content).join("\n\n");
 
         const response = await streamGroq(env, recent, context, headers, async reply => {
           await addMessage(env, body.conversation_id, "assistant", reply);
