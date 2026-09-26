@@ -12,10 +12,14 @@ export async function listConversations(env, limit = 30) {
 }
 
 export async function getConversation(env, id) {
-  if (!hasDb(env)) return { conversation: null, messages: [] };
+  if (!hasDb(env)) return { conversation: null, messages: [], documents: [] };
   const conversation = await env.DB.prepare("SELECT id, title, created_at, updated_at FROM conversations WHERE id = ?").bind(id).first();
-  const { results } = await env.DB.prepare("SELECT role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY id ASC LIMIT 100").bind(id).all();
-  return { conversation, messages: results || [] };
+  if (!conversation) return { conversation: null, messages: [], documents: [] };
+  const [{ results: messages }, { results: documents }] = await Promise.all([
+    env.DB.prepare("SELECT role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY id ASC LIMIT 100").bind(id).all(),
+    env.DB.prepare("SELECT id, title, char_count, created_at FROM documents WHERE conversation_id = ? ORDER BY created_at DESC").bind(id).all()
+  ]);
+  return { conversation, messages: messages || [], documents: documents || [] };
 }
 
 export async function addMessage(env, conversationId, role, content) {
@@ -26,9 +30,20 @@ export async function addMessage(env, conversationId, role, content) {
   ]);
 }
 
-export async function saveDocument(env, documentId, conversationId, title) {
+export async function countDocuments(env, conversationId) {
+  if (!hasDb(env)) return 0;
+  const row = await env.DB.prepare("SELECT COUNT(*) AS count FROM documents WHERE conversation_id = ?").bind(conversationId).first();
+  return Number(row?.count || 0);
+}
+
+export async function findDocumentByHash(env, conversationId, contentHash) {
+  if (!hasDb(env)) return null;
+  return env.DB.prepare("SELECT id, title, char_count FROM documents WHERE conversation_id = ? AND content_hash = ?").bind(conversationId, contentHash).first();
+}
+
+export async function saveDocument(env, documentId, conversationId, title, contentHash, charCount) {
   if (!hasDb(env)) return;
-  await env.DB.prepare("INSERT INTO documents (id, conversation_id, title, created_at) VALUES (?, ?, ?, datetime('now'))").bind(documentId, conversationId, title).run();
+  await env.DB.prepare("INSERT INTO documents (id, conversation_id, title, content_hash, char_count, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))").bind(documentId, conversationId, title, contentHash, charCount).run();
 }
 
 export async function saveChunk(env, documentId, chunkIndex, content, embedding) {
@@ -38,8 +53,18 @@ export async function saveChunk(env, documentId, chunkIndex, content, embedding)
 
 export async function getChunks(env, conversationId, limit = 500) {
   if (!hasDb(env)) return [];
-  const { results } = await env.DB.prepare("SELECT dc.document_id, d.title, dc.content, dc.embedding FROM document_chunks dc JOIN documents d ON d.id = dc.document_id WHERE d.conversation_id = ? ORDER BY dc.document_id, dc.chunk_index LIMIT ?").bind(conversationId, limit).all();
+  const { results } = await env.DB.prepare("SELECT dc.document_id, d.title, dc.chunk_index, dc.content, dc.embedding FROM document_chunks dc JOIN documents d ON d.id = dc.document_id WHERE d.conversation_id = ? ORDER BY dc.document_id, dc.chunk_index LIMIT ?").bind(conversationId, limit).all();
   return results || [];
+}
+
+export async function deleteDocument(env, documentId) {
+  if (!hasDb(env)) return;
+  await env.DB.prepare("DELETE FROM documents WHERE id = ?").bind(documentId).run();
+}
+
+export async function deleteConversation(env, conversationId) {
+  if (!hasDb(env)) return;
+  await env.DB.prepare("DELETE FROM conversations WHERE id = ?").bind(conversationId).run();
 }
 
 export async function checkRateLimit(env, key, maxRequests) {
