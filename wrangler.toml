@@ -8,3 +8,15 @@ enabled = true
 
 [observability.logs]
 enabled = true
+
+[ai]
+binding = "AI"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "fieldnote-db"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+migrations_dir = "migrations"
+
+[vars]
+GROQ_MODEL = "openai/gpt-oss-20b"

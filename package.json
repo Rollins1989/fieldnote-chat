@@ -1,0 +1,14 @@
+{
+  "name": "fieldnote",
+  "version": "2.4.0",
+  "private": true,
+  "description": "Production-minded serverless AI research assistant with hybrid RAG, streaming, memory, source-aware answers and document lifecycle controls.",
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check backend/config.js && node --check backend/http.js && node --check backend/validation.js && node --check backend/rag.js && node --check backend/storage.js && node --check worker.js",
+    "test:watch": "node --test --watch"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
