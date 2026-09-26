@@ -6,8 +6,6 @@
 
 ## What it demonstrates
 
-Fieldnote is intentionally framework-light so the important AI application mechanics remain visible.
-
 - Streaming LLM responses over Server-Sent Events
 - Server-owned system prompt and model configuration
 - Conversation persistence with Cloudflare D1
@@ -54,27 +52,21 @@ Chat -> conversation memory + semantic retrieval -> LLM -> SSE stream + citation
 ## API
 
 ### GET /health
-
 Returns service health and a request ID.
 
 ### POST /conversations
-
 Creates a conversation with an optional title.
 
 ### GET /conversations/:id
-
 Returns conversation metadata and stored messages.
 
 ### GET /conversations
-
 Lists recent conversations.
 
 ### POST /documents
-
 Accepts extracted document text and indexes it into chunks plus embeddings. The frontend extracts PDF text in the browser before sending it.
 
 ### POST /chat
-
 Accepts a conversation ID and user message and streams the assistant response using SSE. When relevant document chunks are found, a citations event is emitted before the stream closes.
 
 ## Security and reliability
@@ -84,7 +76,7 @@ Accepts a conversation ID and user message and streams the assistant response us
 - IDs, titles, message lengths, and document sizes are validated.
 - CORS is restricted to configured origins.
 - Requests are rate-limited by IP when D1 is enabled.
-- Provider failures are converted to generic internal errors rather than exposing upstream responses.
+- Provider failures are converted to generic internal errors.
 - Important factual answers should still be verified against source material.
 
 ## Local setup
@@ -120,28 +112,24 @@ Then update API_BASE in frontend/app.js to the deployed Worker URL.
 ## Design decisions
 
 ### Why vanilla JavaScript?
-
-The UI is deliberately framework-light. This keeps the LLM, SSE, retrieval, validation, and API code easy to inspect during an interview.
+The UI is deliberately framework-light so the LLM, SSE, retrieval, validation, and API code remain easy to inspect during an interview.
 
 ### Why D1?
-
-D1 provides relational persistence for conversations, messages, documents, chunks, and rate-limit buckets without introducing another database service.
+D1 provides relational persistence for conversations, messages, documents, chunks, and rate-limit buckets.
 
 ### Why cosine similarity?
-
 The initial corpus is small, so brute-force similarity keeps retrieval understandable. A larger corpus should use a managed vector index.
 
 ### Why separate generation and embeddings?
-
 Generation and retrieval are independent concerns. Groq handles generation while Workers AI provides embeddings for semantic retrieval.
 
 ## Testing
 
-The repository contains deterministic tests for input validation, chunking, and cosine similarity. LLM evaluation should be treated separately from unit tests: maintain a versioned prompt dataset and measure relevance, citation correctness, latency, and hallucination rate before changing prompts or models.
+The repository contains deterministic tests for input validation, chunking, and cosine similarity. LLM evaluation should be treated separately: maintain a versioned prompt dataset and measure relevance, citation correctness, latency, and hallucination rate before changing prompts or models.
 
 ## Production notes
 
-The repository intentionally leaves the D1 database ID as a deployment-specific value. Do not commit secrets. Configure the database, Workers AI binding, and Groq secret in your Cloudflare environment before publishing the upgraded Worker.
+The D1 database ID is intentionally deployment-specific. Do not commit secrets. Configure D1, Workers AI, and the Groq secret in Cloudflare before publishing the Worker.
 
 ## Roadmap
 
