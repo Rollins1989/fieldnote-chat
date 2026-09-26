@@ -22,6 +22,13 @@ export function validateDocument(body) {
   return null;
 }
 
+export function validateDocumentDelete(body) {
+  if (!body || typeof body !== "object") return "Request body must be an object.";
+  if (typeof body.conversation_id !== "string" || !ID_PATTERN.test(body.conversation_id)) return "Invalid conversation_id.";
+  if (typeof body.id !== "string" || !ID_PATTERN.test(body.id)) return "Invalid document id.";
+  return null;
+}
+
 export function validateConversation(body) {
   if (!body || typeof body !== "object") return "Request body must be an object.";
   if (body.title !== undefined && (typeof body.title !== "string" || body.title.length > CONFIG.maxTitleLength)) return "Invalid title.";
