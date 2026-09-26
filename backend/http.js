@@ -24,10 +24,20 @@ export function errorResponse(error, requestId, headers) {
   }, known ? error.status : 500, headers);
 }
 
+export function securityHeaders() {
+  return {
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "X-Frame-Options": "DENY",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()"
+  };
+}
+
 export function corsHeaders(request, allowedOrigins) {
   const origin = request.headers.get("Origin");
   const allowed = allowedOrigins.has(origin);
   return {
+    ...securityHeaders(),
     "Access-Control-Allow-Origin": allowed ? origin : "null",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
