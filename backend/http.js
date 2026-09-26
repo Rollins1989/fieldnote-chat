@@ -29,7 +29,8 @@ export function securityHeaders() {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "X-Frame-Options": "DENY",
-    "Permissions-Policy": "camera=(), microphone=(), geolocation=()"
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+    "Cache-Control": "no-store"
   };
 }
 
@@ -39,7 +40,7 @@ export function corsHeaders(request, allowedOrigins) {
   return {
     ...securityHeaders(),
     "Access-Control-Allow-Origin": allowed ? origin : "null",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
     "Access-Control-Max-Age": "86400",
     "Vary": "Origin"
