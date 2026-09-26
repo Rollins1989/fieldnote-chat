@@ -99,6 +99,28 @@ async function createConversation(title = "New conversation") {
   await loadConversations();
 }
 
+async function loadConversationDocuments() {
+  if (!conversationId) return;
+  try {
+    const data = await (await api("/conversations/" + encodeURIComponent(conversationId))).json();
+    const count = (data.documents || []).length;
+    els.documentStatus.textContent = count ? count + " document" + (count === 1 ? "" : "s") : "No documents";
+  } catch {}
+}
+
+async function deleteCurrentConversation() {
+  if (!conversationId || busy) return;
+  if (!confirm("Delete this conversation and its indexed documents?")) return;
+  try {
+    await api("/conversations/" + encodeURIComponent(conversationId), { method: "DELETE" });
+    conversationId = null;
+    localStorage.removeItem(STORAGE_KEY);
+    resetView();
+    await loadConversations();
+    setStatus("Ready", "ready");
+  } catch (error) { toast(error.message); }
+}
+
 async function loadConversations() {
   try {
     const response = await api("/conversations");
@@ -134,6 +156,7 @@ async function openConversation(id) {
       }
     }
     await loadConversations();
+    await loadConversationDocuments();
   } catch (error) { toast(error.message); }
 }
 
@@ -244,6 +267,13 @@ els.newChat.onclick = async () => {
   els.input.focus();
 };
 
+document.addEventListener("keydown", event => {
+  if ((event.ctrlKey || event.metaKey) && event.key === "k") {
+    event.preventDefault();
+    els.input.focus();
+  }
+});
+
 els.documentInput.onchange = async () => {
   const file = els.documentInput.files?.[0];
   if (!file) return;
@@ -278,6 +308,7 @@ els.documentInput.onchange = async () => {
     const result = await response.json();
     els.documentStatus.textContent = result.chunks + " chunks";
     toast(file.name + " indexed successfully.");
+    await loadConversationDocuments();
   } catch (error) {
     els.documentStatus.textContent = "Index failed";
     toast(error.message);
@@ -289,3 +320,4 @@ els.documentInput.onchange = async () => {
 setStatus("Ready", "ready");
 bindSuggestions();
 loadConversations();
+loadConversationDocuments();
