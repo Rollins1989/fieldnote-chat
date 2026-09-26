@@ -59,12 +59,20 @@ export async function getChunks(env, conversationId, limit = 500) {
 
 export async function deleteDocument(env, documentId) {
   if (!hasDb(env)) return;
-  await env.DB.prepare("DELETE FROM documents WHERE id = ?").bind(documentId).run();
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM document_chunks WHERE document_id = ?").bind(documentId),
+    env.DB.prepare("DELETE FROM documents WHERE id = ?").bind(documentId)
+  ]);
 }
 
 export async function deleteConversation(env, conversationId) {
   if (!hasDb(env)) return;
-  await env.DB.prepare("DELETE FROM conversations WHERE id = ?").bind(conversationId).run();
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM document_chunks WHERE document_id IN (SELECT id FROM documents WHERE conversation_id = ?)").bind(conversationId),
+    env.DB.prepare("DELETE FROM documents WHERE conversation_id = ?").bind(conversationId),
+    env.DB.prepare("DELETE FROM messages WHERE conversation_id = ?").bind(conversationId),
+    env.DB.prepare("DELETE FROM conversations WHERE id = ?").bind(conversationId)
+  ]);
 }
 
 export async function checkRateLimit(env, key, maxRequests) {
