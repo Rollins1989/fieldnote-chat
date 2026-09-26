@@ -11,7 +11,10 @@ const els = {
   documentStatus: document.querySelector("#document-status"),
   conversations: document.querySelector("#conversation-list"),
   status: document.querySelector("#app-status"),
-  toast: document.querySelector("#toast")
+  toast: document.querySelector("#toast"),
+  documentList: document.querySelector("#document-list"),
+  exportChat: document.querySelector("#export-chat"),
+  deleteChat: document.querySelector("#delete-chat")
 };
 
 let conversationId = localStorage.getItem(STORAGE_KEY);
@@ -103,9 +106,54 @@ async function loadConversationDocuments() {
   if (!conversationId) return;
   try {
     const data = await (await api("/conversations/" + encodeURIComponent(conversationId))).json();
-    const count = (data.documents || []).length;
+    const documents = data.documents || [];
+    const count = documents.length;
     els.documentStatus.textContent = count ? count + " document" + (count === 1 ? "" : "s") : "No documents";
+    els.documentList.replaceChildren();
+    for (const doc of documents) {
+      const row = document.createElement("div");
+      row.className = "document-item";
+      const label = document.createElement("span");
+      label.textContent = doc.title || "Untitled document";
+      label.title = doc.title || "";
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "document-remove";
+      remove.textContent = "×";
+      remove.setAttribute("aria-label", "Delete " + (doc.title || "document"));
+      remove.onclick = () => deleteDocument(doc.id);
+      row.append(label, remove);
+      els.documentList.appendChild(row);
+    }
   } catch {}
+}
+
+async function deleteDocument(id) {
+  if (!conversationId || busy) return;
+  if (!confirm("Remove this indexed document?")) return;
+  try {
+    await api("/documents", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversation_id: conversationId, id })
+    });
+    await loadConversationDocuments();
+    toast("Document removed.");
+  } catch (error) { toast(error.message); }
+}
+
+async function exportCurrentConversation() {
+  if (!conversationId || busy) return;
+  try {
+    const response = await api("/conversations/" + encodeURIComponent(conversationId) + "/export");
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "fieldnote-conversation.md";
+    link.click();
+    URL.revokeObjectURL(url);
+  } catch (error) { toast(error.message); }
 }
 
 async function deleteCurrentConversation() {
@@ -259,9 +307,14 @@ els.input.oninput = () => {
   els.input.style.height = Math.min(els.input.scrollHeight, 140) + "px";
 };
 
+els.exportChat.onclick = exportCurrentConversation;
+els.deleteChat.onclick = deleteCurrentConversation;
+
 els.newChat.onclick = async () => {
   conversationId = null;
   localStorage.removeItem(STORAGE_KEY);
+  els.documentList.replaceChildren();
+  els.documentStatus.textContent = "Ready";
   resetView();
   await loadConversations();
   els.input.focus();
