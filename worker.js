@@ -1,6 +1,6 @@
 import { CONFIG, SYSTEM_PROMPT } from "./backend/config.js";
 import { AppError, corsHeaders, errorResponse, json } from "./backend/http.js";
-import { validateChatMessage, validateConversation, validateDocument } from "./backend/validation.js";
+import { validateChatMessage, validateConversation, validateDocument, validateDocumentDelete } from "./backend/validation.js";
 import { addMessage, checkRateLimit, countDocuments, createConversation, deleteConversation, deleteDocument, findDocumentByHash, getChunks, getConversation, listConversations, saveChunk, saveDocument } from "./backend/storage.js";
 import { chunkText, embed, retrieve } from "./backend/rag.js";
 
@@ -103,6 +103,7 @@ export default {
     const origin = request.headers.get("Origin");
     if (origin && !ALLOWED_ORIGINS.has(origin)) return new Response("Forbidden origin", { status: 403, headers });
     const requestId = crypto.randomUUID();
+    headers["X-Request-ID"] = requestId;
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });
 
     try {
@@ -190,7 +191,8 @@ export default {
 
       if (request.method === "DELETE" && name === "documents") {
         const body = await request.json();
-        if (!body?.id || !/^[a-zA-Z0-9_-]{8,100}$/.test(body.id)) throw new AppError("VALIDATION_ERROR", "Invalid document id.", 400);
+        const deleteError = validateDocumentDelete(body);
+        if (deleteError) throw new AppError("VALIDATION_ERROR", deleteError, 400);
         const chunks = await getChunks(env, body.conversation_id);
         if (!chunks.some(x => x.document_id === body.id)) throw new AppError("NOT_FOUND", "Document not found in this conversation.", 404);
         await deleteDocument(env, body.id);
