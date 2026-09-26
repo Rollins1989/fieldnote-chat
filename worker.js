@@ -1,4 +1,4 @@
-import { CONFIG, SYSTEM_PROMPT } from "./backend/config.js";
+import { APP_VERSION, CONFIG, SYSTEM_PROMPT } from "./backend/config.js";
 import { AppError, corsHeaders, errorResponse, json } from "./backend/http.js";
 import { validateChatMessage, validateConversation, validateDocument, validateDocumentDelete } from "./backend/validation.js";
 import { addMessage, checkRateLimit, countDocuments, createConversation, deleteConversation, deleteDocument, findDocumentByHash, getChunks, getConversation, listConversations, saveChunk, saveDocument } from "./backend/storage.js";
@@ -110,7 +110,7 @@ export default {
       const [name, value] = route(new URL(request.url).pathname);
 
       if (request.method === "GET" && name === "health") {
-        return json({ status: "ok", service: "fieldnote-api", version: "2.4.0", capabilities: { chat: true, retrieval: Boolean(env.AI && env.DB), persistence: Boolean(env.DB) }, request_id: requestId }, 200, headers);
+        return json({ status: "ok", service: "fieldnote-api", version: APP_VERSION, capabilities: { chat: true, retrieval: Boolean(env.AI && env.DB), persistence: Boolean(env.DB) }, request_id: requestId }, 200, headers);
       }
 
       if (request.method === "GET" && name === "conversations") {
