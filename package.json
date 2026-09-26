@@ -1,0 +1,8 @@
+{
+  "name": "fieldnote",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Serverless AI research assistant with streaming chat, conversational memory, RAG, evaluation, and observability.",
+  "scripts": {"test": "node --test", "test:watch": "node --test --watch", "check": "node --check backend/validation.js && node --check backend/rag.js && node --check backend/storage.js && node --check worker.js"},
+  "engines": {"node": ">=20"}
+}
