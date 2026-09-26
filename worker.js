@@ -53,6 +53,7 @@ async function streamGroq(env, messages, context, headers, onComplete, requestId
   const encoder = new TextEncoder();
   let buffer = "";
   let fullReply = "";
+  let persisted = false;
 
   const stream = new ReadableStream({
     async pull(controller) {
@@ -60,6 +61,7 @@ async function streamGroq(env, messages, context, headers, onComplete, requestId
         const { value, done } = await reader.read();
         if (done) {
           await onComplete(fullReply);
+          persisted = true;
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           controller.close();
           return;
@@ -81,7 +83,7 @@ async function streamGroq(env, messages, context, headers, onComplete, requestId
         }
       } catch (error) {
         try {
-          if (fullReply) await onComplete(fullReply);
+          if (fullReply && !persisted) { await onComplete(fullReply); persisted = true; }
           controller.enqueue(encoder.encode("data: " + JSON.stringify({ type: "error", message: "The response stream ended unexpectedly.", request_id: requestId }) + "\n\n"));
           controller.close();
         } catch {
