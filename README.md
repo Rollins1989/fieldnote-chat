@@ -205,3 +205,18 @@ See [SECURITY.md](./SECURITY.md). Never commit `.dev.vars`, API keys, database c
 ## License
 
 MIT.
+
+## Advanced v2 capabilities
+
+The current branch also includes:
+
+- **Hybrid retrieval** — semantic similarity combined with lightweight lexical/title matching for more resilient ranking.
+- **Conversation-scoped RAG** — retrieved chunks are isolated to the active conversation.
+- **Document deduplication** — SHA-256 content hashes prevent repeated indexing of the same document in a conversation.
+- **Document lifecycle** — document counts, metadata and deletion support.
+- **Conversation deletion** — persistent conversations can be removed with their dependent data through database cascades.
+- **Prompt-injection resistance** — retrieved documents are explicitly treated as untrusted evidence rather than instructions.
+- **Operational hardening** — cache-control, security headers, rate-limit cleanup and richer health metadata.
+- **Evaluation coverage** — retrieval ranking and behavioral guardrails are represented in versioned tests/evaluation cases.
+
+These features are designed to demonstrate production-oriented AI engineering decisions while keeping the project intentionally small enough to understand end-to-end.
