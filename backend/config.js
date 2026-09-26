@@ -1,3 +1,5 @@
+export const APP_VERSION = "2.4.0";
+
 export const CONFIG = Object.freeze({
   maxMessages: 12,
   maxMessageLength: 4000,
