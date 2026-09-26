@@ -87,6 +87,8 @@ async function streamGroq(env, messages, context, headers, onComplete) {
 export default {
   async fetch(request, env) {
     const headers = corsHeaders(request, ALLOWED_ORIGINS);
+    const origin = request.headers.get("Origin");
+    if (origin && !ALLOWED_ORIGINS.has(origin)) return new Response("Forbidden origin", { status: 403, headers });
     const requestId = crypto.randomUUID();
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });
 
@@ -121,6 +123,8 @@ export default {
         const error = validateDocument(body);
         if (error) throw new AppError("VALIDATION_ERROR", error, 400);
         if (!env.AI || !env.DB) throw new AppError("FEATURE_UNAVAILABLE", "Document retrieval requires D1 and Workers AI.", 503);
+        const conversation = await getConversation(env, body.conversation_id);
+        if (!conversation.conversation) throw new AppError("NOT_FOUND", "Conversation not found.", 404);
 
         const documentId = crypto.randomUUID().replaceAll("-", "");
         await saveDocument(env, documentId, body.conversation_id, body.title.trim());
@@ -151,7 +155,7 @@ export default {
           .map(({ role, content }) => ({ role, content }));
         recent.push({ role: "user", content: body.message.trim() });
 
-        const chunks = await getChunks(env);
+        const chunks = await getChunks(env, body.conversation_id);
         const relevant = chunks.length && env.AI ? await retrieve(env, body.message.trim(), chunks) : [];
         const context = relevant.map((item, i) => "[Source " + (i + 1) + ": " + item.title + "]\n" + item.content).join("\n\n");
 
