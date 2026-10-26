@@ -15,7 +15,7 @@ binding = "AI"
 [[d1_databases]]
 binding = "DB"
 database_name = "fieldnote-db"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "9a699849-2307-4599-9232-970e3a262464"
 migrations_dir = "migrations"
 
 [vars]
