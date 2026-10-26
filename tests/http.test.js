@@ -12,6 +12,7 @@ test("security headers are present", () => {
 test("CORS allowlist reflects only trusted origins", () => {
   const allowed = corsHeaders(new Request("https://api.example.test", { headers: { Origin: "https://rollins1989.github.io" } }), new Set(["https://rollins1989.github.io"]));
   assert.equal(allowed["Access-Control-Allow-Origin"], "https://rollins1989.github.io");
+  assert.match(allowed["Access-Control-Allow-Headers"], /X-Fieldnote-Workspace/);
 
   const denied = corsHeaders(new Request("https://api.example.test", { headers: { Origin: "https://evil.example" } }), new Set(["https://rollins1989.github.io"]));
   assert.equal(denied["Access-Control-Allow-Origin"], "null");
