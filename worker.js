@@ -15,6 +15,14 @@ async function sha256Hex(text) {
   return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
+async function getWorkspaceId(request) {
+  const token = request.headers.get("X-Fieldnote-Workspace") || "";
+  if (!/^[A-Za-z0-9_-]{40,50}$/.test(token)) {
+    throw new AppError("WORKSPACE_REQUIRED", "This browser workspace is missing or invalid. Refresh the page and try again.", 401);
+  }
+  return sha256Hex(token);
+}
+
 function clientKey(request) {
   return request.headers.get("CF-Connecting-IP") || "anonymous";
 }
@@ -112,22 +120,25 @@ export default {
       const [name, value] = route(new URL(request.url).pathname);
 
       if (request.method === "GET" && name === "health") {
-        return json({ status: "ok", service: "fieldnote-api", version: APP_VERSION, capabilities: { chat: true, retrieval: Boolean(env.AI && env.DB), persistence: Boolean(env.DB) }, request_id: requestId }, 200, headers);
+        return json({ status: "ok", service: "fieldnote-api", version: APP_VERSION, capabilities: { chat: Boolean(env.GROQ_API_KEY && env.DB), retrieval: Boolean(env.AI && env.DB), persistence: Boolean(env.DB), workspaceIsolation: true }, request_id: requestId }, 200, headers);
       }
 
+      const workspaceId = await getWorkspaceId(request);
+      if (!env.DB) throw new AppError("DATABASE_UNAVAILABLE", "Fieldnote storage is not configured. Please try again later.", 503);
+
       if (request.method === "GET" && name === "conversations") {
-        return json({ conversations: await listConversations(env) }, 200, headers);
+        return json({ conversations: await listConversations(env, workspaceId) }, 200, headers);
       }
 
       if (request.method === "DELETE" && name === "conversation") {
-        const data = await getConversation(env, value);
+        const data = await getConversation(env, value, workspaceId);
         if (!data.conversation) throw new AppError("NOT_FOUND", "Conversation not found.", 404);
         await deleteConversation(env, value);
         return json({ deleted: true, id: value }, 200, headers);
       }
 
       if (request.method === "GET" && name === "conversation-export") {
-        const data = await getConversation(env, value);
+        const data = await getConversation(env, value, workspaceId);
         if (!data.conversation) throw new AppError("NOT_FOUND", "Conversation not found.", 404);
         const lines = [
           "# " + data.conversation.title,
@@ -146,7 +157,7 @@ export default {
       }
 
       if (request.method === "GET" && name === "conversation") {
-        const data = await getConversation(env, value);
+        const data = await getConversation(env, value, workspaceId);
         if (!data.conversation) throw new AppError("NOT_FOUND", "Conversation not found.", 404);
         return json(data, 200, headers);
       }
@@ -156,7 +167,7 @@ export default {
         const error = validateConversation(body);
         if (error) throw new AppError("VALIDATION_ERROR", error, 400);
         const id = crypto.randomUUID().replaceAll("-", "");
-        await createConversation(env, id, body.title?.trim() || "New conversation");
+        await createConversation(env, id, body.title?.trim() || "New conversation", workspaceId);
         return json({ id }, 201, headers);
       }
 
@@ -165,7 +176,7 @@ export default {
         const error = validateDocument(body);
         if (error) throw new AppError("VALIDATION_ERROR", error, 400);
         if (!env.AI || !env.DB) throw new AppError("FEATURE_UNAVAILABLE", "Document retrieval requires D1 and Workers AI.", 503);
-        const conversation = await getConversation(env, body.conversation_id);
+        const conversation = await getConversation(env, body.conversation_id, workspaceId);
         if (!conversation.conversation) throw new AppError("NOT_FOUND", "Conversation not found.", 404);
 
         const documentCount = await countDocuments(env, body.conversation_id);
@@ -195,6 +206,8 @@ export default {
         const body = await request.json();
         const deleteError = validateDocumentDelete(body);
         if (deleteError) throw new AppError("VALIDATION_ERROR", deleteError, 400);
+        const ownedConversation = await getConversation(env, body.conversation_id, workspaceId);
+        if (!ownedConversation.conversation) throw new AppError("NOT_FOUND", "Conversation not found.", 404);
         const chunks = await getChunks(env, body.conversation_id);
         if (!chunks.some(x => x.document_id === body.id)) throw new AppError("NOT_FOUND", "Document not found in this conversation.", 404);
         await deleteDocument(env, body.id);
@@ -210,7 +223,7 @@ export default {
         const rate = await checkRateLimit(env, clientKey(request), CONFIG.rateLimitPerMinute);
         if (!rate.allowed) throw new AppError("RATE_LIMITED", "Too many requests. Try again in a minute.", 429);
 
-        const conversation = await getConversation(env, body.conversation_id);
+        const conversation = await getConversation(env, body.conversation_id, workspaceId);
         if (env.DB && !conversation.conversation) throw new AppError("NOT_FOUND", "Conversation not found.", 404);
 
         await addMessage(env, body.conversation_id, "user", body.message.trim());
