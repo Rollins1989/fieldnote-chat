@@ -41,7 +41,7 @@ export function corsHeaders(request, allowedOrigins) {
     ...securityHeaders(),
     "Access-Control-Allow-Origin": allowed ? origin : "null",
     "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type, X-Fieldnote-Workspace",
     "Access-Control-Max-Age": "86400",
     "Vary": "Origin"
   };

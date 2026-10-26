@@ -1,5 +1,16 @@
 const API_BASE = "https://fieldnote-chat.nanotechnology728.workers.dev";
 const STORAGE_KEY = "fieldnote.conversationId";
+const WORKSPACE_KEY = "fieldnote.workspaceToken";
+
+function getWorkspaceToken() {
+  let token = localStorage.getItem(WORKSPACE_KEY);
+  if (!token) {
+    const bytes = crypto.getRandomValues(new Uint8Array(32));
+    token = btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+    localStorage.setItem(WORKSPACE_KEY, token);
+  }
+  return token;
+}
 
 const els = {
   messages: document.querySelector("#messages"),
@@ -82,7 +93,9 @@ function bindSuggestions() {
 }
 
 async function api(path, options = {}) {
-  const response = await fetch(API_BASE + path, options);
+  const headers = new Headers(options.headers || {});
+  headers.set("X-Fieldnote-Workspace", getWorkspaceToken());
+  const response = await fetch(API_BASE + path, { ...options, headers });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
     throw new Error(payload?.error?.message || "Request failed.");
@@ -205,7 +218,17 @@ async function openConversation(id) {
     }
     await loadConversations();
     await loadConversationDocuments();
-  } catch (error) { toast(error.message); }
+  } catch (error) {
+    if (error.message === "Conversation not found.") {
+      conversationId = null;
+      localStorage.removeItem(STORAGE_KEY);
+      resetView();
+      await loadConversations();
+      toast("This conversation is from an older workspace and cannot be opened here. Start a new chat.");
+      return;
+    }
+    toast(error.message);
+  }
 }
 
 function renderCitations(content, citations = []) {
@@ -330,6 +353,11 @@ document.addEventListener("keydown", event => {
 els.documentInput.onchange = async () => {
   const file = els.documentInput.files?.[0];
   if (!file) return;
+  if (file.size > 10 * 1024 * 1024) {
+    els.documentInput.value = "";
+    toast("File is too large. Choose a file under 10 MB.");
+    return;
+  }
 
   els.documentStatus.textContent = "Indexing";
   try {
@@ -350,6 +378,7 @@ els.documentInput.onchange = async () => {
       text = await file.text();
     }
 
+    if (!text.trim()) throw new Error("No readable text was found in this file. Scanned PDFs need OCR before upload.");
     if (text.length > 100000) throw new Error("Document is too large. Keep it under 100,000 characters.");
 
     const response = await api("/documents", {
@@ -374,14 +403,24 @@ async function checkHealth() {
   try {
     const response = await api("/health");
     const data = await response.json();
-    setStatus(data.status === "ok" ? "Connected" : "Degraded", data.status === "ok" ? "ready" : "busy");
+    const ready = data.status === "ok" && data.capabilities?.chat && data.capabilities?.persistence;
+    setStatus(ready ? "Connected" : "Setup required", ready ? "ready" : "error");
   } catch {
     setStatus("Offline", "error");
   }
 }
 
-setStatus("Connecting", "busy");
-bindSuggestions();
-loadConversations();
-loadConversationDocuments();
-checkHealth();
+async function initialize() {
+  setStatus("Connecting", "busy");
+  bindSuggestions();
+  await checkHealth();
+  await loadConversations();
+  if (conversationId) {
+    await openConversation(conversationId);
+  } else {
+    resetView();
+    els.documentStatus.textContent = "No documents";
+  }
+}
+
+initialize();
