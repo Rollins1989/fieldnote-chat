@@ -1,19 +1,19 @@
 export function hasDb(env) { return Boolean(env?.DB); }
 
-export async function createConversation(env, id, title) {
+export async function createConversation(env, id, title, workspaceId) {
   if (!hasDb(env)) return;
-  await env.DB.prepare("INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, datetime('now'), datetime('now'))").bind(id, title).run();
+  await env.DB.prepare("INSERT INTO conversations (id, title, workspace_id, created_at, updated_at) VALUES (?, ?, ?, datetime('now'), datetime('now'))").bind(id, title, workspaceId).run();
 }
 
-export async function listConversations(env, limit = 30) {
+export async function listConversations(env, workspaceId, limit = 30) {
   if (!hasDb(env)) return [];
-  const { results } = await env.DB.prepare("SELECT id, title, created_at, updated_at FROM conversations ORDER BY updated_at DESC LIMIT ?").bind(limit).all();
+  const { results } = await env.DB.prepare("SELECT id, title, created_at, updated_at FROM conversations WHERE workspace_id = ? ORDER BY updated_at DESC LIMIT ?").bind(workspaceId, limit).all();
   return results || [];
 }
 
-export async function getConversation(env, id) {
+export async function getConversation(env, id, workspaceId) {
   if (!hasDb(env)) return { conversation: null, messages: [], documents: [] };
-  const conversation = await env.DB.prepare("SELECT id, title, created_at, updated_at FROM conversations WHERE id = ?").bind(id).first();
+  const conversation = await env.DB.prepare("SELECT id, title, created_at, updated_at FROM conversations WHERE id = ? AND workspace_id = ?").bind(id, workspaceId).first();
   if (!conversation) return { conversation: null, messages: [], documents: [] };
   const [{ results: messages }, { results: documents }] = await Promise.all([
     env.DB.prepare("SELECT role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY id ASC LIMIT 100").bind(id).all(),
