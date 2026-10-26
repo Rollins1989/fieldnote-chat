@@ -403,7 +403,8 @@ async function checkHealth() {
   try {
     const response = await api("/health");
     const data = await response.json();
-    setStatus(data.status === "ok" ? "Connected" : "Degraded", data.status === "ok" ? "ready" : "busy");
+    const ready = data.status === "ok" && data.capabilities?.chat && data.capabilities?.persistence;
+    setStatus(ready ? "Connected" : "Setup required", ready ? "ready" : "error");
   } catch {
     setStatus("Offline", "error");
   }
