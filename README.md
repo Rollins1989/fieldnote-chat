@@ -164,17 +164,13 @@ npx wrangler deploy
 
 Then set the deployed Worker URL in `frontend/app.js`.
 
-## Production boundary
+**Important before deploying:** replace `REPLACE_WITH_YOUR_D1_DATABASE_ID` in `wrangler.toml` with the actual D1 database ID. Do not deploy with the placeholder. Apply all remote migrations after the database is correctly bound.
 
-This remains a deliberately small, single-user/demo architecture rather than a multi-tenant enterprise application.
+## Public demo and privacy model
 
-Before handling sensitive customer data, add:
-- authentication
-- authorization / ownership checks
-- tenant isolation
-- managed vector indexing for larger corpora
-- audit logging
-- stronger abuse protection
+The API scopes conversations and documents to a browser workspace. The browser generates a random workspace token and stores it in `localStorage`; the API stores only a SHA-256 hash of that token as the workspace identifier. The token is sent in the `X-Fieldnote-Workspace` request header. This prevents the public conversation list from exposing every visitor's conversations and blocks cross-workspace reads/deletes through the normal API.
+
+This is **anonymous browser-workspace isolation, not user authentication**. Anyone with the workspace token can access that workspace, and clearing browser storage or changing browsers loses access to its conversations. Do not use this demo for confidential, regulated, or sensitive personal data. Before positioning it as a production service, add account-based authentication and recovery, stronger abuse controls, usage/cost limits, monitoring, and a privacy/data-retention policy.
 
 The current RAG implementation deliberately scans stored embeddings because it is small and understandable. Hybrid reranking improves relevance, but a production-scale corpus should move to a managed vector index and authenticated tenant-aware retrieval.
 
