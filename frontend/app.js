@@ -218,7 +218,17 @@ async function openConversation(id) {
     }
     await loadConversations();
     await loadConversationDocuments();
-  } catch (error) { toast(error.message); }
+  } catch (error) {
+    if (error.message === "Conversation not found.") {
+      conversationId = null;
+      localStorage.removeItem(STORAGE_KEY);
+      resetView();
+      await loadConversations();
+      toast("This conversation is from an older workspace and cannot be opened here. Start a new chat.");
+      return;
+    }
+    toast(error.message);
+  }
 }
 
 function renderCitations(content, citations = []) {
